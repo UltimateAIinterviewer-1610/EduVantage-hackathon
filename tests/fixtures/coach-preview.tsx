@@ -1,0 +1,14 @@
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import PresentationCoach from '../../components/PresentationCoach';
+import { UiProvider } from '../../uiText';
+import '../../styles.css';
+
+createRoot(document.getElementById('root')!).render(
+  <UiProvider language="en">
+    <div className="app-shell flex h-screen">
+      <aside className="w-20 shrink-0">EduVantage</aside>
+      <main className="flex-1 overflow-y-auto"><PresentationCoach profileId="layout-preview" connection={{provider:'openai',key:'',source:'session'}} language="en" onOpenProvider={()=>{}}/></main>
+    </div>
+  </UiProvider>
+);
