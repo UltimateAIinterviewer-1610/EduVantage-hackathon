@@ -2,6 +2,8 @@
 
 **Live demo:** [edu-vantage-beta.vercel.app](https://edu-vantage-beta.vercel.app/). This is the deployed EduVantage website for judges and visitors. The source files in this repository are inspected or run with the development steps below; `localhost` addresses are only available on the computer running a local server.
 
+**Track D documentation:** [Architecture, grounding, learner model, usage, and evaluation status](./PROJECT_DOCUMENTATION.md).
+
 New visitors first see the public EduVantage home page. Its **Privacy Policy** link works before sign-in or profile creation. In the local version, choose **Try the local demo** to create or continue a device-only profile; in account mode, choose **Sign in or create account**. The policy is marked prelaunch because the final retention schedule and operator processes still need review before wider public registration.
 
 For an account-backed Vercel deployment, follow [DEPLOYMENT.md](./DEPLOYMENT.md). Public builds require Supabase email accounts and per-user cloud storage; local development without that configuration still supports the original browser-local demo.

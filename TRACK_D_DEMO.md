@@ -22,4 +22,4 @@ The supplied **Problem Statements.pdf** summarizes Track D as: an AI study compa
 
 ## Demo preparation
 
-Use short files and a tested provider key with browser/network access. Gemini video transcription and scanned-page OCR require the explicit checkbox and send the selected media to Google. This app stores materials and scores in the current browser only; do not use sensitive materials for a public demo. Relevant source snippets used for a question or source-grounded class are sent to the chosen provider. Only the Study Lab progress panel contains measured practice results; the rest of the dashboard is illustrative.
+Use short files and a tested provider key with browser/network access. Gemini video transcription and scanned-page OCR require the explicit checkbox and send the selected media to Google. In account mode, extracted materials and scores sync to the signed-in learner; avoid sensitive materials in a public demo. Relevant source snippets used for a question or source-grounded class are sent to the chosen provider. Only the Study Lab progress panel contains measured practice results; the rest of the dashboard is illustrative.
