@@ -1,6 +1,6 @@
 # EduVantage AI Live
 
-To open the app by double-clicking, use **`Start-EduVantage.html`** in a standard browser such as Chrome or Safari. Opening the source `index.html` redirects to that launcher. Internet access is still needed for web fonts and live AI provider responses. The Codex in-app browser does not permit local `file://` pages, so use a standard browser for this file.
+**Live demo:** [edu-vantage-beta.vercel.app](https://edu-vantage-beta.vercel.app/). This is the deployed EduVantage website for judges and visitors. The source files in this repository are inspected or run with the development steps below; `localhost` addresses are only available on the computer running a local server.
 
 New visitors first see the public EduVantage home page. Its **Privacy Policy** link works before sign-in or profile creation. In the local version, choose **Try the local demo** to create or continue a device-only profile; in account mode, choose **Sign in or create account**. The policy is marked prelaunch because the final retention schedule and operator processes still need review before wider public registration.
 
@@ -16,7 +16,7 @@ For the Track D challenge, open **Study Lab** after sign-in. Import a readable P
 
 For a tour, choose **How to use EduVantage** on the sign-in screen or in the navigation. The 12-step guide explains profile setup, language, AI provider, course search, custom courses, lesson planning, classroom controls, Study Lab, Presentation Coach, saved sessions, interview practice, and the sample dashboard. You can revisit any step and open the relevant section without changing your current lesson settings.
 
-For development, run `npm ci` and `npm run dev`, then open the local `http://` address shown in Terminal. To refresh the double-clickable launcher after code changes, run `npm run build:portable`. From the public home, enter the local demo, create a student profile, select a course, and choose the subject, chapter, topic and learning requirements before entering the classroom.
+For local development, run `npm ci` and `npm run dev` in this repository, then open the address shown in Terminal. From the public home, create or sign in to an account for the account-backed experience, or use the local mode if it is available in your configuration.
 
 The subject library also has **Create your own course** for School, University, Individual and Business learning levels. Enter any subject or course name, then type its chapter, topic and learning requirements in the planner. Those exact choices guide the AI lesson and appear in the session archive.
 
@@ -28,9 +28,9 @@ Gemini retains the existing realtime voice classroom. OpenAI, Anthropic and comp
 
 A personal key is scoped to the student profile. In public account mode it stays in browser session storage and is never synced; in local demo mode a student may choose to remember it on this device. Browser storage remains accessible to scripts on this site, so use a trusted device. Public accounts sync profile, notes, history, Study Lab and coach progress. Learners can export or delete their account data from Profile. A centrally funded provider key must never be placed in the frontend build.
 
-Checks: `npm run typecheck`, `npm test`, `npm run build:portable`.
+Checks: `npm run typecheck`, `npm test`, `npm run build`.
 
-To use a localhost link on macOS, double-click **`Start Local Server.command`** and leave its Terminal window open. It installs dependencies if needed, starts the updated app on [http://localhost:3001/](http://localhost:3001/) in your default browser. Both `npm run dev` and the launcher use port 3001 and stop with an error if it is occupied, rather than silently choosing another port. If localhost shows a different page from the network URL, inspect `lsof -nP -iTCP:3001 -sTCP:LISTEN` for a stale loopback listener before restarting this folder’s server. Close the Terminal window to stop this local server.
+The local development server and the live demo are separate. Running another project on the same port may show that project's page; use the live demo link above when reviewing the submitted application.
 
 
 ## AI assistance disclosure
