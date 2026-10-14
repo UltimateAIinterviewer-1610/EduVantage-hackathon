@@ -50,7 +50,7 @@ it.each(examples)('uploads %s, allows editing, builds a plan, and saves a rehear
   fireEvent.change(screen.getByLabelText('Your rehearsal words'),{target:{value:'Edited point, then storage after dark.'}});
   fireEvent.click(screen.getByRole('button',{name:/Next part/}));
   fireEvent.click(screen.getByRole('button',{name:/Next part/}));
-  fireEvent.click(screen.getByRole('button',{name:/Finish & get feedback/}));
+  fireEvent.click(screen.getByRole('button',{name:/Finish & review/}));
   expect(screen.getByText('One rehearsal closer to ready.')).toBeTruthy();
   expect(readPresentationAttempts('student')[0].brief.keyPoints).toBe('Edited point\nStorage after dark');
   expect(requests).not.toHaveBeenCalled();

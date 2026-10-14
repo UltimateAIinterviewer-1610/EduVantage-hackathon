@@ -4,6 +4,8 @@ import PresentationCoach from '../../components/PresentationCoach';
 import { UiProvider } from '../../uiText';
 import '../../styles.css';
 
+if (new URLSearchParams(location.search).get('theme') === 'dark') document.documentElement.dataset.theme = 'dark';
+
 createRoot(document.getElementById('root')!).render(
   <UiProvider language="en">
     <div className="app-shell flex h-screen">

@@ -8,6 +8,32 @@ beforeEach(() => {
 });
 afterEach(() => {vi.unstubAllEnvs();vi.unstubAllGlobals();});
 
+test('Study Lab and Presentation Coach use the authenticated AI route with the selected provider',async()=>{
+  const requests: RequestInit[] = [];
+  const fetchMock=vi.fn(async(input:string,init?:RequestInit)=>{
+    if(input.includes('/auth/v1/token'))return new Response(JSON.stringify({access_token:'access-one',refresh_token:'refresh-one',expires_in:3600,user:{id:'learner'}}),{status:200});
+    if(input==='/api/ai'){
+      requests.push(init||{});
+      return new Response(JSON.stringify({text:requests.length===1?'The source explains photosynthesis [1].':JSON.stringify({opening:'Begin with a question',body:['Explain sunlight'],closing:'Summarize the idea',questions:['Why does it matter?']})}),{status:200});
+    }
+    throw new Error('Unexpected request');
+  });vi.stubGlobal('fetch',fetchMock);
+  const cloud=await import('../services/cloud');
+  const study=await import('../services/studyAI');
+  const coach=await import('../services/presentationCoach');
+  await cloud.cloudSignIn('learner@example.com','password123');
+  const connection={provider:'openai' as const,key:'TEST-SECRET-KEY',source:'session' as const};
+  const source={id:'source-1',title:'Biology notes',kind:'textbook' as const,addedAt:1,chunks:[{id:'chunk-1',sourceId:'source-1',label:'Page 1 · section 1',text:'Photosynthesis converts sunlight into energy.'}]};
+  expect((await study.askStudySources(connection,[source],'Explain photosynthesis','English')).citations).toHaveLength(1);
+  const brief={title:'Photosynthesis',audience:'Class',durationMinutes:3,goal:'Explain the idea',keyPoints:'Sunlight'};
+  expect((await coach.makePresentationPlan(connection,brief,'English')).opening).toContain('question');
+  expect(requests).toHaveLength(2);
+  for(const init of requests){
+    expect(init.headers).toMatchObject({Authorization:'Bearer access-one'});
+    expect(JSON.parse(String(init.body))).toMatchObject({provider:'openai',key:'TEST-SECRET-KEY'});
+  }
+});
+
 test.each(chatProviders)('$provider uses the authenticated application API for tests and teaching',async({provider,model})=>{
   const fetchMock=vi.fn(async(input:string,init?:RequestInit)=>{
     if(input.includes('/auth/v1/token'))return new Response(JSON.stringify({access_token:'access-one',refresh_token:'refresh-one',expires_in:3600,user:{id:'learner'}}),{status:200});

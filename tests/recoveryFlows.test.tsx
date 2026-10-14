@@ -35,12 +35,47 @@ test('Study Lab restores an answer and question and keeps them when a new reques
  localStorage.setItem('edu_study_sources_recover',JSON.stringify([{id:'s1',title:'Notes',kind:'textbook',chunks:[{id:'c1',text:'A fraction is part of a whole.',label:'Page 1'}]}]));
  vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response(JSON.stringify({error:{message:'daily quota exhausted'}}),{status:429})));
  renderUi(<StudyLab profileId="recover" connection={connection} language="en" onOpenProvider={()=>{}}/>);
+ fireEvent.click(screen.getByRole('button',{name:'Ask a question'}));
  expect(screen.getByText('A prior answer')).toBeTruthy();
- expect(screen.getByText('What is a fraction?')).toBeTruthy();
  fireEvent.click(screen.getByRole('button',{name:'Ask sources'}));
  await waitFor(()=>expect(screen.getByRole('alert').textContent).toContain('daily quota'));
  expect(screen.getByText('A prior answer')).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'Practice'}));
  expect(screen.getByText('What is a fraction?')).toBeTruthy();
+});
+
+test('Study Lab opens only citations backed by a saved source excerpt',()=>{
+ const excerpt='Photosynthesis converts sunlight into glucose.';
+ const valid={number:1,sourceId:'s1',title:'Biology notes',label:'Page 1 · section 1',excerpt};
+ const invalid={number:99,sourceId:'missing',title:'Missing source',label:'Page 9',excerpt:'Unsupported claim'};
+ localStorage.setItem('edu_study_sources_recover',JSON.stringify([{id:'s1',title:'Biology notes',kind:'textbook',addedAt:1,chunks:[{id:'c1',sourceId:'s1',label:valid.label,text:excerpt}]}]));
+ localStorage.setItem('edu_study_session_recover',JSON.stringify({query:'photosynthesis',answer:{text:'Glucose is produced [1]. Unsupported [99].',citations:[valid,invalid]}}));
+ renderUi(<StudyLab profileId="recover" connection={connection} language="en" onOpenProvider={()=>{}}/>);
+ fireEvent.click(screen.getByRole('button',{name:'Ask a question'}));
+ expect(screen.queryByText('[99]')).toBeNull();
+ expect(screen.queryByRole('button',{name:/Open citation 99/})).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:/Open citation 1/}));
+ expect(screen.getByRole('dialog',{name:/Source excerpt from Biology notes/}).textContent).toContain(excerpt);
+ fireEvent.keyDown(screen.getByRole('dialog'),{key:'Escape'});
+ expect(screen.queryByRole('dialog')).toBeNull();
+});
+
+test('Study Lab records two answers and adapts the next sourced question difficulty',async()=>{
+ localStorage.setItem('edu_study_sources_recover',JSON.stringify([{id:'s1',title:'Biology notes',kind:'textbook',addedAt:1,chunks:[{id:'c1',sourceId:'s1',text:'Photosynthesis converts sunlight into glucose.',label:'Page 1 · section 1'}]}]));
+ vi.stubGlobal('fetch',vi.fn().mockImplementation(async()=>new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({prompt:'What does photosynthesis produce?',options:['Glucose','Iron','Salt','Sand'],correctIndex:0,explanation:'The notes identify glucose.',sourceNumber:1})}}]}),{status:200})));
+ renderUi(<StudyLab profileId="recover" connection={connection} language="en" onOpenProvider={()=>{}}/>);
+ fireEvent.click(screen.getByRole('button',{name:'Practice'}));
+ fireEvent.click(screen.getByRole('button',{name:/Start practice/}));
+ await screen.findByText('What does photosynthesis produce?');
+ fireEvent.click(screen.getByRole('button',{name:/AGlucose/}));
+ expect(screen.getByText(/next question will be application level/i)).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:/Next question/}));
+ await screen.findByText(/application · FOUR CHOICES/i);
+ fireEvent.click(screen.getByRole('button',{name:/BIron/}));
+ expect(screen.getByText(/next question will be foundation level/i)).toBeTruthy();
+ const attempts=JSON.parse(localStorage.getItem('edu_study_progress_recover')!);
+ expect(attempts).toHaveLength(2);
+ expect(attempts.map((item:{correct:boolean})=>item.correct)).toEqual([false,true]);
 });
 
 test('Presentation Coach restores rehearsal progress and does not restart it after reload',()=>{

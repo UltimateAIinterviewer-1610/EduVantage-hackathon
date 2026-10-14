@@ -50,6 +50,7 @@ export function chunkText(sourceId: string, text: string, prefix = 'Section'): S
   return chunks;
 }
 export async function importStudyFile(file: File, kind: StudyKind, options: ImportOptions = {}): Promise<StudySource> {
+  if (!file.size) throw new Error('This file is empty. Choose a file with readable text.');
   if (file.size > MAX_FILE_BYTES) throw new Error('This file is over 12 MB. Upload a shorter PDF or transcript.');
   const id = createId();
   const isPdf = file.name.toLowerCase().endsWith('.pdf');
@@ -110,6 +111,7 @@ export async function importStudyFile(file: File, kind: StudyKind, options: Impo
     chunks = chunkText(id, transcript, 'Video section');
   } else {
     const text = await file.text();
+    if (/\u0000/.test(text) || (text.match(/\uFFFD/g)?.length || 0) > Math.max(2, text.length * 0.02)) throw new Error('This text file is not readable. Save it as UTF-8 text and try again.');
     if (text.length > MAX_CHARS) throw new Error('This transcript has too much text. Use a shorter extract.');
     chunks = chunkText(id, text);
   }

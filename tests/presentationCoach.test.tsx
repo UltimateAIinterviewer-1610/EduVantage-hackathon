@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import PresentationCoach from '../components/PresentationCoach';
 import { UiProvider } from '../uiText';
 import { AIConnection } from '../services/aiConnection';
-import { makePresentationPlan, practiceMetrics, presentationFollowUp, readPresentationAttempts, savePresentationAttempt, starterPlan } from '../services/presentationCoach';
+import { makePresentationPlan, practiceMetrics, presentationFollowUp, readPresentationAttempts, reviewPresentation, savePresentationAttempt, starterPlan } from '../services/presentationCoach';
 
 const noConnection: AIConnection = { provider: 'gemini', key: '', source: 'none' };
 const brief = { title: 'Solar energy', audience: 'Classmates', durationMinutes: 3, goal: 'Explain how panels work', keyPoints: 'Sunlight\nElectricity\nCost' };
@@ -53,6 +53,19 @@ it('can ask a contextual follow-up after a student answers', async () => {
   vi.unstubAllGlobals();
 });
 
+it('sends only the written transcript for optional AI feedback', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ choices: [{ message: { content: 'Your opening explains the topic clearly.' } }] }) }));
+  const connection: AIConnection = { provider: 'custom', key: 'test-key', baseUrl: 'https://example.test/v1', model: 'test-model', source: 'session' };
+  await reviewPresentation(connection, { id: 'review', timestamp: 1, brief, segments: ['Here is my opening.', 'Here is my example.', 'Thank you.', 'I can explain more.'], elapsedSeconds: 90 }, 'English');
+  const request = JSON.parse(vi.mocked(fetch).mock.calls[0][1]?.body as string);
+  const sent = JSON.stringify(request.messages);
+  expect(sent).toContain('Here is my opening.');
+  expect(sent).not.toContain('Solar energy');
+  expect(sent).not.toContain('Classmates');
+  expect(sent).not.toContain('90');
+  vi.unstubAllGlobals();
+});
+
 it('lets a student complete a typed rehearsal and view feedback without an API key', () => {
   render(<UiProvider language="en"><PresentationCoach profileId="one" connection={noConnection} language="en" onOpenProvider={() => {}} /></UiProvider>);
   fireEvent.change(screen.getByLabelText('Presentation topic or title *'), { target: { value: 'Solar energy' } });
@@ -64,7 +77,7 @@ it('lets a student complete a typed rehearsal and view feedback without an API k
   fireEvent.change(screen.getByLabelText('Your rehearsal words'), { target: { value: 'Panels turn sunlight into electricity. Here is an example.' } });
   fireEvent.click(screen.getByRole('button', { name: /Next part/ }));
   fireEvent.click(screen.getByRole('button', { name: /Next part/ }));
-  fireEvent.click(screen.getByRole('button', { name: /Finish & get feedback/ }));
+  fireEvent.click(screen.getByRole('button', { name: /Finish & review/ }));
   expect(screen.getByText('One rehearsal closer to ready.')).toBeTruthy();
   expect(readPresentationAttempts('one')).toHaveLength(1);
 });

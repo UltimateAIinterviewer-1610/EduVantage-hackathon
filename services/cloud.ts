@@ -4,7 +4,7 @@ type StoredRow = { key: string; value: string };
 const url = (import.meta.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 const sessionKey = 'edu_cloud_session';
-const ownedKey = (key: string) => key === 'edu_student_profile' || key === 'edu_history' || key.startsWith('edu_notes_') || key.startsWith('edu_study_progress_') || key.startsWith('edu_study_sources_') || key.startsWith('edu_presentation_attempts_');
+const ownedKey = (key: string) => key === 'edu_student_profile' || key === 'edu_history' || key.startsWith('edu_notes_') || key.startsWith('edu_study_progress_') || key.startsWith('edu_study_sources_') || key.startsWith('edu_study_session_') || key.startsWith('edu_presentation_attempts_');
 let session: Session | null = null;
 let syncError = '';
 const pending = new Map<string, string>();

@@ -74,6 +74,23 @@ test('saving work uses the account row and retains a local copy when cloud savin
   expect(cloud.cloudSyncError()).toBe('');
 });
 
+test('Study Lab drafts sync through the existing learner-scoped account path', async () => {
+  const writes: string[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
+    if (input.includes('/auth/v1/token')) return new Response(JSON.stringify(auth), { status: 200 });
+    if (input.includes('/rest/v1/learner_state') && init?.method === 'POST') { writes.push(String(init.body)); expect(input).toContain('on_conflict=user_id,key'); return new Response(null, { status: 201 }); }
+    if (input.includes('/rest/v1/learner_state')) return new Response('[]', { status: 200 });
+    throw new Error('Unexpected request');
+  }));
+  const cloud = await import('../services/cloud');
+  await cloud.cloudSignIn('student@example.com', 'password123');
+  cloud.persistLearnerData('edu_study_session_user-one', JSON.stringify({ query: 'What is a fraction?' }));
+  await cloud.flushCloudWrites();
+  expect(writes.join(' ')).toContain('edu_study_session_user-one');
+  expect(writes.join(' ')).toContain('user-one');
+  expect(localStorage.getItem('edu_study_session_user-one')).toContain('fraction');
+});
+
 test('an unsynced note survives reload and is retried after cloud hydration', async () => {
   let allowSave = false;
   vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {

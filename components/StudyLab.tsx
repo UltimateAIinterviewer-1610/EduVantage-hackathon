@@ -1,37 +1,66 @@
+import React, { useEffect, useRef, useState } from 'react';
+import { ArrowRight, BookOpen, FileText, Sparkles } from 'lucide-react';
 import { createId } from '../services/id';
-import React, { useEffect, useState } from 'react';
-import { AIConnection } from '../services/aiConnection';
-import { StudyKind, StudySource, importStudyFile, readStudySources, writeStudySources } from '../services/studySources';
-import { StudyAnswer, StudyQuestion, askStudySources, createStudyQuestion, nextDifficulty } from '../services/studyAI';
+import type { AIConnection } from '../services/aiConnection';
+import { persistLearnerData } from '../services/cloud';
+import { type StudyKind, type StudySource, importStudyFile, readStudySources, writeStudySources } from '../services/studySources';
+import { type Citation, type StudyAnswer, type StudyQuestion, askStudySources, createStudyQuestion, nextDifficulty, validStudyCitationNumbers } from '../services/studyAI';
 import { readStudyProgress, saveStudyAttempt, studySummary } from '../services/studyProgress';
 import { useUi } from '../uiText';
 import ProviderRecovery, { useProviderWait } from './ProviderRecovery';
 
+type View = 'sources' | 'ask' | 'practice' | 'progress';
+const views: { id: View; title: string }[] = [
+  { id: 'sources', title: 'My sources' }, { id: 'ask', title: 'Ask a question' },
+  { id: 'practice', title: 'Practice' }, { id: 'progress', title: 'Progress' },
+];
+
+function AnswerText({ answer, open }: { answer: StudyAnswer; open: (citation: Citation) => void }) {
+  const cited = new Map(answer.citations.map(item => [item.number, item]));
+  return <p className="study-answer-text">{answer.text.split(/(\[\d+\])/g).map((part, index) => {
+    const marker = /^\[(\d+)\]$/.exec(part);
+    if (!marker) return <React.Fragment key={index}>{part}</React.Fragment>;
+    const citation = cited.get(Number(marker[1]));
+    return citation ? <button type="button" key={index} className="study-citation-link" onClick={() => open(citation)} aria-label={`Open citation ${citation.number}: ${citation.title}, ${citation.label}`}>{part}</button> : null;
+  })}</p>;
+}
+
 export default function StudyLab({ profileId, connection, language, onOpenProvider }: { profileId: string; connection: AIConnection; language: string; onOpenProvider: () => void }) {
   const t = useUi();
-  const providerWaiting=useProviderWait(connection);
-  const draftKey=`edu_study_session_${profileId}`;
-  const [draft]=useState(()=>{try{return JSON.parse(localStorage.getItem(draftKey)||'{}');}catch{return {};}});
+  const providerWaiting = useProviderWait(connection);
+  const draftKey = `edu_study_session_${profileId}`;
+  const [draft] = useState(() => { try { return JSON.parse(localStorage.getItem(draftKey) || '{}'); } catch { return {}; } });
+  const [view, setView] = useState<View>('sources');
   const [sources, setSources] = useState<StudySource[]>(() => readStudySources(profileId));
   const [kind, setKind] = useState<StudyKind>('textbook');
   const [useGeminiMedia, setUseGeminiMedia] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [query, setQuery] = useState<string>(draft.query||'');
-  const [answer, setAnswer] = useState<StudyAnswer | null>(draft.answer||null);
-  const [question, setQuestion] = useState<StudyQuestion | null>(draft.question||null);
-  const [selected, setSelected] = useState<number | null>(draft.selected??null);
-  const [difficulty, setDifficulty] = useState<StudyQuestion['difficulty']>(draft.difficulty||'foundation');
+  const [query, setQuery] = useState<string>(draft.query || '');
+  const [answer, setAnswer] = useState<StudyAnswer | null>(draft.answer || null);
+  const [question, setQuestion] = useState<StudyQuestion | null>(draft.question || null);
+  const [selected, setSelected] = useState<number | null>(draft.selected ?? null);
+  const [difficulty, setDifficulty] = useState<StudyQuestion['difficulty']>(draft.difficulty || 'foundation');
   const [attempts, setAttempts] = useState(() => readStudyProgress(profileId));
+  const [excerpt, setExcerpt] = useState<Citation | null>(null);
+  const excerptTrigger = useRef<HTMLElement | null>(null);
+  const openExcerpt = (citation: Citation) => { excerptTrigger.current = document.activeElement as HTMLElement; setExcerpt(citation); };
+  const closeExcerpt = () => { setExcerpt(null); queueMicrotask(() => excerptTrigger.current?.focus()); };
   const score = studySummary(attempts);
-  useEffect(()=>{try{localStorage.setItem(draftKey,JSON.stringify({query,answer,question,selected,difficulty}));}catch{}},[draftKey,query,answer,question,selected,difficulty]);
+  const citationInSources = (citation: Citation) => sources.some(source => source.id === citation.sourceId && source.title === citation.title && source.chunks.some(chunk => chunk.label === citation.label && chunk.text === citation.excerpt));
+  const visibleAnswer = answer ? { ...answer, citations: answer.citations.filter(citationInSources) } : null;
+  const hasValidAnswerCitation = Boolean(visibleAnswer && validStudyCitationNumbers(visibleAnswer.text, visibleAnswer.citations).length);
+  // The existing device draft format is unchanged; this Study Lab key now also syncs with the learner account.
+  useEffect(() => { try { persistLearnerData(draftKey, JSON.stringify({ query, answer, question, selected, difficulty })); } catch {} }, [draftKey, query, answer, question, selected, difficulty]);
   const save = (next: StudySource[]) => { writeStudySources(profileId, next); setSources(next); };
   const upload = async (file?: File) => {
     if (!file) return;
     setBusy(true); setError(''); setNotice('Reading study material…');
-    try { const source = await importStudyFile(file, kind, { useGeminiMedia, connection }); save([...sources, source]); setNotice(`${source.title} added with ${source.chunks.length} cited sections.`); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not read the file.'); setNotice(''); }
+    try {
+      const source = await importStudyFile(file, kind, { useGeminiMedia, connection });
+      save([...sources, source]); setNotice(`${source.title} added with ${source.chunks.length} readable sections.`);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not read the file.'); setNotice(''); }
     finally { setBusy(false); }
   };
   const ask = async (event: React.FormEvent) => {
@@ -43,7 +72,7 @@ export default function StudyLab({ profileId, connection, language, onOpenProvid
   };
   const makeQuestion = async () => {
     setBusy(true); setError('');
-    try { const next=await createStudyQuestion(connection, sources, query.trim() || 'key concepts from these materials', difficulty, language);setQuestion(next);setSelected(null); }
+    try { const next = await createStudyQuestion(connection, sources, query.trim() || 'key concepts from these materials', difficulty, language); setQuestion(next); setSelected(null); }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not create a question.'); }
     finally { setBusy(false); }
   };
@@ -55,18 +84,20 @@ export default function StudyLab({ profileId, connection, language, onOpenProvid
     catch { setError('Your answer was checked, but progress could not be saved on this device.'); }
     setDifficulty(nextDifficulty(correct, question.difficulty));
   };
-  return <div className="study-lab p-5 sm:p-10 max-w-6xl mx-auto space-y-7 text-slate-900">
-    <header><p className="text-xs font-black uppercase tracking-[.22em] text-orange-600">Track D · {t('studyLab')}</p><h1 className="text-4xl sm:text-5xl font-black mt-2">{t('guideStudyTitle')}</h1><p className="text-slate-600 mt-3 max-w-2xl">{t('studyIntro')}</p></header>
-    {!connection.key && <div className="rounded-2xl bg-amber-50 p-4 border border-amber-200 flex flex-wrap justify-between gap-3"><p>Connect an AI provider to ask questions and generate assessments.</p><button className="underline font-bold" onClick={onOpenProvider}>Open AI Provider</button></div>}
+  return <div className="study-lab study-workspace mx-auto max-w-6xl p-4 sm:p-8 lg:p-10">
+    <header className="study-hero"><div><span className="study-pill">STUDY SPACE</span><h1>Make sense of what <em>you’re learning.</em></h1><p>Bring your course material together. Ask better questions, find the source, and practice at your own pace.</p></div><div className="study-hero-art" aria-hidden="true"><span>01 <strong>Read with purpose</strong></span><span>02 <strong>Ask & explore</strong></span><span>03 <strong>Practice & grow</strong></span></div></header>
+    <nav className="study-tabs" aria-label="Study Lab sections">{views.map(item => <button type="button" key={item.id} className={view === item.id ? 'active' : ''} aria-current={view === item.id ? 'page' : undefined} onClick={() => { setView(item.id); setError(''); }}>{item.title}</button>)}</nav>
+    {notice && <p role="status" className="study-message success">{notice}</p>}{error && <p role="alert" className="study-message error">{error}</p>}{busy && <p role="status" className="study-message">{t('studyWorking')}</p>}
     <ProviderRecovery connection={connection} error={error} onOpenProvider={onOpenProvider} practice="You can read your uploaded sources, existing answer, and completed practice without AI."/>
-    <section className="grid lg:grid-cols-[minmax(0,1fr)_320px] gap-6">
-      <div className="space-y-6">
-        <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm"><h2 className="text-xl font-black">1. {t('studyUpload')}</h2><p className="text-sm text-slate-500 mt-1">{t('studyUploadHelp')}</p><div className="flex flex-wrap gap-3 mt-5 items-end"><label className="profile-field min-w-40"><span>{t('studyKind')}</span><select value={kind} onChange={event => setKind(event.target.value as StudyKind)}><option value="textbook">{t('studyTextbook')}</option><option value="slides">{t('studySlides')}</option><option value="lecture">{t('lecture')}</option></select></label><label className="primary-button cursor-pointer">{t('studyChoose')}<input aria-label={t('studyChoose')} type="file" accept=".pdf,.pptx,.txt,.md,.srt,.vtt,.mp4,.webm" className="sr-only" disabled={busy} onChange={event => { void upload(event.target.files?.[0]); event.target.value = ''; }} /></label></div><label className="flex items-start gap-2 mt-4 text-sm"><input type="checkbox" checked={useGeminiMedia} onChange={event => setUseGeminiMedia(event.target.checked)}/><span>{t('studyMediaConsent')}</span></label><p className="text-xs text-slate-500 mt-3">{t('studyPrivacy')}</p></div>
-        <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm"><h2 className="text-xl font-black">2. {t('studyAsk')}</h2><form onSubmit={ask} className="mt-4 space-y-3"><label className="block font-semibold" htmlFor="study-query">{t('studyQuestion')}</label><textarea id="study-query" className="w-full border border-slate-300 rounded-xl p-3 min-h-24" value={query} onChange={event => setQuery(event.target.value)} placeholder="What are the key ideas in these materials?"/><button className="primary-button" disabled={busy || providerWaiting || !sources.length || !connection.key || !query.trim()}>{t('studyAskButton')}</button></form>{answer && <div className="mt-6 rounded-2xl bg-slate-50 p-5"><h3 className="font-black mb-2">{t('studyAnswer')}</h3><p className="whitespace-pre-wrap leading-relaxed">{answer.text}</p>{answer.citations.length ? <div className="mt-5 space-y-2"><h4 className="font-bold">{t('studyCitations')}</h4>{answer.citations.map(item => <details key={item.number} className="bg-white border rounded-xl p-3"><summary className="cursor-pointer font-semibold">[{item.number}] {item.title} · {item.label}</summary><p className="text-sm text-slate-600 mt-2 whitespace-pre-wrap">{item.excerpt}</p></details>)}</div> : <p className="text-amber-700 text-sm mt-3">No valid source citation was returned. Check the answer against your materials.</p>}</div>}</div>
-        <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm"><div className="flex flex-wrap justify-between gap-3"><div><h2 className="text-xl font-black">3. {t('studyPractice')}</h2><p className="text-sm text-slate-500">{t('studyDifficulty')}: <strong className="capitalize">{difficulty}</strong> · {t('studyCorrect')}: {score.correct}/{score.total}</p></div><button className="primary-button" disabled={busy || providerWaiting || !sources.length || !connection.key} onClick={() => void makeQuestion()}>{question ? t('studyNext') : t('studyStart')}</button></div>{question && <div className="mt-5"><p className="text-xs uppercase font-black text-indigo-700">{question.difficulty}</p><h3 className="text-lg font-bold mt-2">{question.prompt}</h3><div className="grid gap-2 mt-4">{question.options.map((option, index) => <button key={index} disabled={selected !== null} onClick={() => choose(index)} className={`text-left rounded-xl border p-3 ${selected !== null && index === question.correctIndex ? 'bg-emerald-100 border-emerald-500' : selected === index ? 'bg-rose-100 border-rose-500' : 'bg-white hover:border-indigo-500'}`}>{String.fromCharCode(65 + index)}. {option}</button>)}</div>{selected !== null && <div role="status" className="mt-4 rounded-xl bg-slate-50 p-4"><strong>{selected === question.correctIndex ? 'Correct.' : 'Keep practicing.'}</strong> {question.explanation}<details className="mt-3"><summary className="cursor-pointer underline">Evidence: {question.citation.title} · {question.citation.label}</summary><p className="text-sm mt-2">{question.citation.excerpt}</p></details><p className="text-sm mt-2">Your next question will be {difficulty} level.</p></div>}</div>}</div>
-      </div>
-      <aside className="bg-slate-900 text-white rounded-3xl p-6 self-start"><h2 className="font-black text-xl">{t('studySources')}</h2>{sources.length ? <ul className="mt-5 space-y-3">{sources.map(source => <li key={source.id} className="rounded-xl bg-white/10 p-3"><p className="font-semibold break-all">{source.title}</p><p className="text-xs text-slate-300 capitalize">{source.kind} · {source.chunks.length} sections</p><button className="text-xs underline text-rose-200 mt-2" onClick={() => { try { save(sources.filter(item => item.id !== source.id)); setNotice('Source removed.'); setAnswer(null); setQuestion(null); } catch { setError('Could not update the source library.'); } }}>{t('studyRemove')}</button></li>)}</ul> : <p className="text-slate-300 mt-4">{t('studyEmpty')}</p>}</aside>
-    </section>
-    {notice && <p role="status" className="text-emerald-700 font-semibold">{notice}</p>}{error && <p role="alert" className="text-rose-700 font-semibold">{error}</p>}{busy && <p role="status">{t('studyWorking')}</p>}
+    {!connection.key && (view === 'ask' || view === 'practice') && <p className="study-message">Connect an AI provider to ask or generate source-grounded practice. <button type="button" onClick={onOpenProvider}>Open AI Provider</button></p>}
+    {view === 'sources' && <section className="study-panel"><div className="study-section-head"><div><p className="study-overline">YOUR LIBRARY</p><h2>Start with your material</h2><p>Add a file and review its readable pages, slides, or sections.</p></div><span className="study-count">{sources.length} {sources.length === 1 ? 'source' : 'sources'}</span></div>
+      <div className="study-upload"><FileText aria-hidden="true"/><label htmlFor="study-file">Choose a file to add</label><input id="study-file" type="file" accept=".pdf,.pptx,.txt,.md,.srt,.vtt,.mp4,.webm" disabled={busy} onChange={event => { void upload(event.target.files?.[0]); event.target.value = ''; }}/><small>Text-selectable PDF, PPTX, TXT, MD, SRT or VTT · Up to 12 MB</small></div>
+      <div className="study-upload-options"><label className="profile-field"><span>{t('studyKind')}</span><select value={kind} onChange={event => setKind(event.target.value as StudyKind)}><option value="textbook">{t('studyTextbook')}</option><option value="slides">{t('studySlides')}</option><option value="lecture">{t('lecture')}</option></select></label><label className="study-media-option"><input type="checkbox" checked={useGeminiMedia} onChange={event => setUseGeminiMedia(event.target.checked)}/><span>{t('studyMediaConsent')}</span></label></div><p className="study-help">{t('studyPrivacy')}</p>
+      <div className="study-source-list">{sources.length ? sources.map(source => <article className="study-source-card" key={source.id}><div className="study-source-title"><FileText aria-hidden="true"/><div><h3>{source.title}</h3><p>{source.kind} · {source.chunks.length} readable sections</p></div><button type="button" onClick={() => { try { save(sources.filter(item => item.id !== source.id)); setAnswer(null); setQuestion(null); setNotice('Source removed.'); } catch { setError('Could not update the source library.'); } }} aria-label={`Remove ${source.title}`}>Remove</button></div><details><summary>Review source excerpts</summary>{source.chunks.map(chunk => <div className="study-source-excerpt" key={chunk.id}><strong>{chunk.label}</strong><p>{chunk.text}</p></div>)}</details></article>) : <p className="study-empty"><BookOpen aria-hidden="true"/>No materials yet. Add a readable file to begin.</p>}</div>
+    </section>}
+    {view === 'ask' && <section className="study-panel"><div className="study-section-head"><div><p className="study-overline">ASK & EXPLORE</p><h2>Ask your material</h2><p>Answers use relevant passages from your sources and your selected AI provider.</p></div><Sparkles aria-hidden="true"/></div><form onSubmit={ask} className="study-question-form"><label htmlFor="study-query">Your question</label><textarea id="study-query" value={query} onChange={event => setQuery(event.target.value)} rows={4} placeholder="What are the key ideas in these materials?"/><button type="submit" className="study-primary" disabled={busy || providerWaiting || !sources.length || !connection.key || !query.trim()}>{t('studyAskButton')} <ArrowRight size={17} aria-hidden="true"/></button></form>{visibleAnswer && <article className="study-answer"><p className="study-overline">SOURCE-GROUNDED ANSWER</p><AnswerText answer={visibleAnswer} open={openExcerpt}/>{hasValidAnswerCitation ? <p className="study-help">Select a citation in the answer to read its supporting excerpt.</p> : <p className="study-no-citation">No valid source citation was returned. Check this answer against your materials.</p>}</article>}</section>}
+    {view === 'practice' && <section className="study-panel"><div className="study-section-head"><div><p className="study-overline">PRACTICE & GROW</p><h2>Practice, one step at a time</h2><p>One four-choice question at a time, based on your source excerpts.</p></div><span className="study-level">{difficulty}</span></div><div className="study-practice-summary"><span>{score.correct} correct of {score.total} attempts</span><button type="button" className="study-primary" disabled={busy || providerWaiting || !sources.length || !connection.key} onClick={() => void makeQuestion()}>{question ? t('studyNext') : t('studyStart')} <ArrowRight size={17} aria-hidden="true"/></button></div>{question ? <div className="study-practice-card"><p className="study-overline">{question.difficulty} · FOUR CHOICES</p><h3>{question.prompt}</h3><div className="study-choices">{question.options.map((option, index) => <button type="button" key={index} disabled={selected !== null} className={selected !== null && index === question.correctIndex ? 'correct' : selected === index ? 'incorrect' : ''} onClick={() => choose(index)}><span>{String.fromCharCode(65 + index)}</span>{option}</button>)}</div>{selected !== null && <div role="status" className="study-feedback"><strong>{selected === question.correctIndex ? 'Correct.' : 'Keep practicing.'}</strong><p>{question.explanation}</p><details><summary>Supporting evidence · {question.citation.title}, {question.citation.label}</summary><p>{question.citation.excerpt}</p></details><small>Your next question will be {difficulty} level.</small></div>}</div> : <div className="study-empty"><Sparkles aria-hidden="true"/><h3>Ready when you are</h3><p>Add a source and generate a question from its readable content.</p></div>}</section>}
+    {view === 'progress' && <section className="study-panel"><div className="study-section-head"><div><p className="study-overline">YOUR PROGRESS</p><h2>Keep the momentum.</h2><p>Every completed question shows what you remember and what to revisit.</p></div></div><div className="study-stats"><div><strong>{score.total}</strong><span>Practice attempts</span></div><div><strong>{score.total ? Math.round(score.correct / score.total * 100) : 0}%</strong><span>Overall accuracy</span></div><div><strong>{difficulty}</strong><span>Current level</span></div><div><strong>{score.recentAccuracy}%</strong><span>Last 10 accuracy</span></div></div><h3 className="study-progress-title">Your learning path</h3>{score.topics.length ? <ul className="study-topic-list">{score.topics.map(topic => <li key={topic.topic}><span>{topic.topic}</span><strong>{topic.correct}/{topic.total} correct</strong></li>)}</ul> : <p className="study-empty">Your completed practice will appear here.</p>}{attempts.length > 0 && <div className="study-recent"><h3>Recent attempts</h3>{attempts.slice(0, 6).map(item => <p key={item.id}>{item.correct ? 'Correct' : 'Review'} · {item.difficulty} · {item.topic}</p>)}</div>}</section>}
+    {excerpt && <div className="study-excerpt-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) closeExcerpt(); }}><div className="study-excerpt-dialog" role="dialog" aria-modal="true" aria-label={`Source excerpt from ${excerpt.title}`} onKeyDown={event => { if (event.key === 'Escape') closeExcerpt(); }}><button type="button" autoFocus className="study-excerpt-close" onClick={closeExcerpt}>Close</button><p className="study-overline">SOURCE EXCERPT [{excerpt.number}]</p><h2>{excerpt.title}</h2><p className="study-help">{excerpt.label}</p><p>{excerpt.excerpt}</p></div></div>}
   </div>;
 }

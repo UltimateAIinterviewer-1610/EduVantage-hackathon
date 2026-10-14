@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { importStudyFile, lessonSourceContext, retrieveChunks, StudySource } from '../services/studySources';
-import { askStudySources, createStudyQuestion, nextDifficulty } from '../services/studyAI';
+import { askStudySources, createStudyQuestion, nextDifficulty, validStudyCitationNumbers } from '../services/studyAI';
 import { AIConnection } from '../services/aiConnection';
 import { readFileSync } from 'node:fs';
 import { readStudyProgress, saveStudyAttempt, studySummary } from '../services/studyProgress';
@@ -22,6 +22,13 @@ describe('Study Lab source grounding and adaptation', () => {
     expect(imported.chunks[0].text).toContain('sunlight');
     await expect(importStudyFile(new File(['x'], 'lecture.mp4'), 'lecture')).rejects.toThrow(/enable Gemini video transcription/);
   });
+  it('rejects empty, oversized, unsupported, and unreadable sources before saving them', async () => {
+    await expect(importStudyFile(new File([], 'empty.txt'), 'textbook')).rejects.toThrow(/empty/);
+    await expect(importStudyFile(new File(['x'], 'notes.exe'), 'textbook')).rejects.toThrow(/PDF, PPTX/);
+    await expect(importStudyFile(new File([new Uint8Array(12 * 1024 * 1024 + 1)], 'large.txt'), 'textbook')).rejects.toThrow(/over 12 MB/);
+    await expect(importStudyFile(new File(['   '], 'blank.md'), 'textbook')).rejects.toThrow(/No readable text/);
+    await expect(importStudyFile(new File(['\u0000\u0001binary'], 'broken.txt'), 'textbook')).rejects.toThrow(/not readable/);
+  });
   it('extracts and cites native PowerPoint slide text', async () => {
     const bytes = readFileSync('tests/fixtures/study-slides.pptx');
     const file = new File([new Uint8Array(bytes)], 'lesson.pptx');
@@ -37,6 +44,13 @@ describe('Study Lab source grounding and adaptation', () => {
     expect(answer.citations[0].title).toBe('Biology slides.pdf');
     const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]?.body as string);
     expect(body.messages[1].content).toContain('Photosynthesis converts sunlight');
+  });
+  it('never exposes a citation number outside the supplied excerpts', async () => {
+    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({ choices: [{ message: { content: 'Glucose is produced [1]. Extra claim [99].' } }] }) } as Response);
+    const answer = await askStudySources(connection, [source], 'What does photosynthesis make?', 'English');
+    expect(answer.text).toContain('[1]');
+    expect(answer.text).not.toContain('[99]');
+    expect(validStudyCitationNumbers(answer.text, answer.citations)).toEqual([1]);
   });
   it('does not use unrelated excerpts for an unsupported question, but supports a broad overview', async () => {
     expect(retrieveChunks([source], 'Explain volcanic eruptions')).toHaveLength(0);
@@ -58,6 +72,15 @@ describe('Study Lab source grounding and adaptation', () => {
     expect(question.citation.label).toContain('Page 2');
     expect(nextDifficulty(true, question.difficulty)).toBe('application');
     expect(nextDifficulty(false, 'application')).toBe('foundation');
+  });
+  it('uses the new difficulty on a second sourced question after the first answer', async () => {
+    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ prompt: 'What is produced?', options: ['Glucose', 'Iron', 'Salt', 'Sand'], correctIndex: 0, explanation: 'Glucose is listed in the source.', sourceNumber: 1 }) } }] }) } as Response);
+    const first = await createStudyQuestion(connection, [source], 'photosynthesis', 'foundation', 'English');
+    const second = await createStudyQuestion(connection, [source], 'photosynthesis', nextDifficulty(true, first.difficulty), 'English');
+    expect([first.difficulty, second.difficulty]).toEqual(['foundation', 'application']);
+    expect(second.options).toHaveLength(4);
+    expect(second.citation.excerpt).toContain('glucose');
+    expect(nextDifficulty(false, second.difficulty)).toBe('foundation');
   });
   it('saves per-profile practice progress for the dashboard', () => {
     localStorage.clear();
