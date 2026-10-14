@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
-import { importStudyFile, lessonSourceContext, retrieveChunks, StudySource } from '../services/studySources';
+import { captionChunks, importStudyFile, lessonSourceContext, retrieveChunks, StudySource } from '../services/studySources';
 import { askStudySources, createStudyQuestion, nextDifficulty, validStudyCitationNumbers } from '../services/studyAI';
 import { AIConnection } from '../services/aiConnection';
 import { readFileSync } from 'node:fs';
@@ -16,11 +16,15 @@ describe('Study Lab source grounding and adaptation', () => {
   beforeEach(() => vi.stubGlobal('fetch', vi.fn()));
   afterEach(() => vi.unstubAllGlobals());
   it('imports a lecture transcript and explains the video-transcription requirement', async () => {
-    const file = new File(['Photosynthesis begins with sunlight.'], 'lecture.vtt', { type: 'text/vtt' });
+    const file = new File(['WEBVTT\n\n00:00:01.000 --> 00:00:04.000\nPhotosynthesis begins with sunlight.'], 'lecture.vtt', { type: 'text/vtt' });
     const imported = await importStudyFile(file, 'lecture');
     expect(imported.kind).toBe('lecture');
     expect(imported.chunks[0].text).toContain('sunlight');
+    expect(imported.chunks[0].label).toContain('00:00:01.000');
     await expect(importStudyFile(new File(['x'], 'lecture.mp4'), 'lecture')).rejects.toThrow(/enable Gemini video transcription/);
+  });
+  it('keeps SRT timestamps with their cited caption excerpts', () => {
+    expect(captionChunks('lecture', '1\n00:01:02,500 --> 00:01:05,000\nThe first idea.\n\n2\n00:01:06,000 --> 00:01:08,000\nThe next idea.').map(chunk => chunk.label)).toEqual(['Timestamp 00:01:02.500 · section 1', 'Timestamp 00:01:06.000 · section 1']);
   });
   it('rejects empty, oversized, unsupported, and unreadable sources before saving them', async () => {
     await expect(importStudyFile(new File([], 'empty.txt'), 'textbook')).rejects.toThrow(/empty/);
@@ -82,11 +86,17 @@ describe('Study Lab source grounding and adaptation', () => {
     expect(second.citation.excerpt).toContain('glucose');
     expect(nextDifficulty(false, second.difficulty)).toBe('foundation');
   });
+  it('rejects a repeated provider question without making another billable request', async () => {
+    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ prompt: 'What is produced?', options: ['Glucose', 'Iron', 'Salt', 'Sand'], correctIndex: 0, explanation: 'Glucose is listed in the source.', sourceNumber: 1 }) } }] }) } as Response);
+    await expect(createStudyQuestion(connection, [source], 'photosynthesis', 'foundation', 'English', ['what IS produced?'])).rejects.toThrow(/repeated/);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
   it('saves per-profile practice progress for the dashboard', () => {
     localStorage.clear();
     const attempt = { id: 'a', sourceId: 'one', topic: 'Photosynthesis', difficulty: 'foundation' as const, correct: true, timestamp: 1 };
     saveStudyAttempt('student-one', attempt);
     expect(studySummary(readStudyProgress('student-one'))).toMatchObject({ total: 1, correct: 1, recentAccuracy: 100 });
+    expect(studySummary(readStudyProgress('student-one')).topics[0].accuracy).toBe(100);
     expect(readStudyProgress('student-two')).toHaveLength(0);
   });
 });

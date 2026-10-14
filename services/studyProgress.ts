@@ -1,7 +1,7 @@
 import type { StudyQuestion } from './studyAI';
 import { persistLearnerData } from './cloud';
 
-export interface StudyAttempt { id: string; sourceId: string; topic: string; difficulty: StudyQuestion['difficulty']; correct: boolean; timestamp: number }
+export interface StudyAttempt { id: string; sourceId: string; topic: string; difficulty: StudyQuestion['difficulty']; correct: boolean; timestamp: number; prompt?: string }
 const key = (profileId: string) => `edu_study_progress_${profileId}`;
 export function readStudyProgress(profileId: string): StudyAttempt[] {
   try {
@@ -25,5 +25,5 @@ export function studySummary(attempts: StudyAttempt[]) {
     const old = topics.get(key) || { correct: 0, total: 0 };
     topics.set(key, { correct: old.correct + Number(attempt.correct), total: old.total + 1 });
   }
-  return { total, correct, recentAccuracy, topics: [...topics].map(([topic, value]) => ({ topic, ...value })).sort((a, b) => b.total - a.total) };
+  return { total, correct, recentAccuracy, topics: [...topics].map(([topic, value]) => ({ topic, ...value, accuracy: Math.round(value.correct / value.total * 100) })).sort((a, b) => a.accuracy - b.accuracy || b.total - a.total) };
 }

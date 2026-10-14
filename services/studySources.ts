@@ -49,6 +49,21 @@ export function chunkText(sourceId: string, text: string, prefix = 'Section'): S
   }
   return chunks;
 }
+export function captionChunks(sourceId: string, text: string): StudyChunk[] {
+  const blocks = text.replace(/\r/g, '').split(/\n\s*\n/);
+  const chunks: StudyChunk[] = [];
+  for (const block of blocks) {
+    const lines = block.split('\n').map(line => line.trim()).filter(Boolean);
+    const timing = lines.findIndex(line => /^(?:\d{1,2}:)?\d{2}:\d{2}[.,]\d{3}\s*-->\s*(?:\d{1,2}:)?\d{2}:\d{2}[.,]\d{3}/.test(line));
+    if (timing < 0) continue;
+    const start = lines[timing].split('-->')[0].trim().replace(',', '.');
+    const spoken = lines.slice(timing + 1).filter(line => !/^NOTE\b/.test(line)).join(' ').replace(/<[^>]+>/g, '').trim();
+    for (const part of chunkText(sourceId, spoken, `Timestamp ${start} · section`)) {
+      chunks.push({ ...part, id: `${sourceId}-${chunks.length}` });
+    }
+  }
+  return chunks;
+}
 export async function importStudyFile(file: File, kind: StudyKind, options: ImportOptions = {}): Promise<StudySource> {
   if (!file.size) throw new Error('This file is empty. Choose a file with readable text.');
   if (file.size > MAX_FILE_BYTES) throw new Error('This file is over 12 MB. Upload a shorter PDF or transcript.');
@@ -113,7 +128,8 @@ export async function importStudyFile(file: File, kind: StudyKind, options: Impo
     const text = await file.text();
     if (/\u0000/.test(text) || (text.match(/\uFFFD/g)?.length || 0) > Math.max(2, text.length * 0.02)) throw new Error('This text file is not readable. Save it as UTF-8 text and try again.');
     if (text.length > MAX_CHARS) throw new Error('This transcript has too much text. Use a shorter extract.');
-    chunks = chunkText(id, text);
+    chunks = /\.(srt|vtt)$/i.test(file.name) ? captionChunks(id, text) : chunkText(id, text);
+    if (!chunks.length && /\.(srt|vtt)$/i.test(file.name)) throw new Error('No timed captions were found. Export a valid SRT or VTT transcript.');
   }
   if (!chunks.length) throw new Error('No readable text was found. For scanned PDFs enable Gemini OCR, or upload a text-selectable version.');
   return { id, title: file.name, kind, chunks, addedAt: Date.now() };

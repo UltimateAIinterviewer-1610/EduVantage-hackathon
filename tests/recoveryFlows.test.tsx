@@ -62,7 +62,8 @@ test('Study Lab opens only citations backed by a saved source excerpt',()=>{
 
 test('Study Lab records two answers and adapts the next sourced question difficulty',async()=>{
  localStorage.setItem('edu_study_sources_recover',JSON.stringify([{id:'s1',title:'Biology notes',kind:'textbook',addedAt:1,chunks:[{id:'c1',sourceId:'s1',text:'Photosynthesis converts sunlight into glucose.',label:'Page 1 · section 1'}]}]));
- vi.stubGlobal('fetch',vi.fn().mockImplementation(async()=>new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({prompt:'What does photosynthesis produce?',options:['Glucose','Iron','Salt','Sand'],correctIndex:0,explanation:'The notes identify glucose.',sourceNumber:1})}}]}),{status:200})));
+ let questionNumber=0;
+ vi.stubGlobal('fetch',vi.fn().mockImplementation(async()=>new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({prompt:questionNumber++ ? 'Which product is named in the notes?' : 'What does photosynthesis produce?',options:['Glucose','Iron','Salt','Sand'],correctIndex:0,explanation:'The notes identify glucose.',sourceNumber:1})}}]}),{status:200})));
  renderUi(<StudyLab profileId="recover" connection={connection} language="en" onOpenProvider={()=>{}}/>);
  fireEvent.click(screen.getByRole('button',{name:'Practice'}));
  fireEvent.click(screen.getByRole('button',{name:/Start practice/}));
