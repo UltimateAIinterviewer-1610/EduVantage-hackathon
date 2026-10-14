@@ -524,6 +524,7 @@ html[data-theme="dark"] :is(.provider-dialog,.session-review) {
 @media(max-width:390px) { .study-stats { grid-template-columns:1fr 1fr; }.study-upload-options .profile-field { width:100%; } }
 html[data-theme="dark"] .study-workspace { --study-ink:#edf5ec;--study-muted:#bdd0c0;--study-line:#405a4c; }
 html[data-theme="dark"] .study-hero { background:#214232; }html[data-theme="dark"] .study-hero p { color:#d1e1d1; }html[data-theme="dark"] .study-hero h1 em { color:#c5e3b7; }
+html[data-theme="dark"] .study-hero-art strong { color:#214233; }
 html[data-theme="dark"] .study-panel,html[data-theme="dark"] .study-source-card,html[data-theme="dark"] .study-excerpt-dialog { background:#1b3040;color:#edf5ec; }html[data-theme="dark"] .study-upload,html[data-theme="dark"] .study-answer,html[data-theme="dark"] .study-practice-card,html[data-theme="dark"] .study-stats>div,html[data-theme="dark"] .study-message { background:#213c43;color:#edf5ec; }html[data-theme="dark"] .study-choices button,html[data-theme="dark"] .study-question-form textarea { background:#152e36;color:#edf5ec; }html[data-theme="dark"] .study-citation-link,html[data-theme="dark"] .study-source-card summary { color:#b8e5c0; }
 html[data-theme="dark"] .study-overline,html[data-theme="dark"] .study-tabs button.active,html[data-theme="dark"] .study-upload svg { color:#bee4bf; }
 html[data-theme="dark"] .study-tabs button.active { border-color:#bee4bf; }
