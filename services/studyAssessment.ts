@@ -2,6 +2,7 @@ import { AIConnection, generateGeminiText, sendAIChat } from './aiConnection';
 import { type Citation } from './studyAI';
 import { type StudySource, retrieveChunks } from './studySources';
 import { similarStudyQuestion } from './studyQuestionSimilarity';
+import { matchingStudyEvidence } from './studyEvidence';
 
 export type AssessmentFormat = 'multiple-choice' | 'short-answer' | 'numerical';
 export interface AssessmentQuestion {
@@ -39,8 +40,10 @@ export async function createStudyAssessment(connection: AIConnection, sources: S
   const questions = parsed.map((item, index) => {
     if (!item || typeof item !== 'object') throw new Error('The provider returned an invalid question.');
     const q = item as Record<string, unknown>;
-    const citation = citations.find(source => source.number === q.sourceNumber);
-    if (!citation || !['multiple-choice', 'short-answer', 'numerical'].includes(String(q.format)) || !['foundation', 'application', 'challenge'].includes(String(q.difficulty)) || typeof q.prompt !== 'string' || !q.prompt.trim() || typeof q.answer !== 'string' || !q.answer.trim() || typeof q.explanation !== 'string' || !q.explanation.trim() || typeof q.evidenceQuote !== 'string' || q.evidenceQuote.trim().length < 12 || !citation.excerpt.toLowerCase().includes(q.evidenceQuote.trim().toLowerCase())) throw new Error('A generated question lacked verifiable source evidence. No progress was changed.');
+    const citation = citations.find(source => source.number === Number(q.sourceNumber));
+    if (!citation || !['multiple-choice', 'short-answer', 'numerical'].includes(String(q.format)) || !['foundation', 'application', 'challenge'].includes(String(q.difficulty)) || typeof q.prompt !== 'string' || !q.prompt.trim() || typeof q.answer !== 'string' || !q.answer.trim() || typeof q.explanation !== 'string' || !q.explanation.trim() || typeof q.evidenceQuote !== 'string') throw new Error('A generated question lacked verifiable source evidence. No progress was changed.');
+    const evidenceQuote = matchingStudyEvidence(citation.excerpt, q.evidenceQuote);
+    if (!evidenceQuote) throw new Error('A generated question lacked verifiable source evidence. No progress was changed.');
     if (seen.some(prompt => similarStudyQuestion(prompt, q.prompt as string))) throw new Error('The provider repeated or closely paraphrased a previous question. No progress was changed.');
     seen.push(q.prompt);
     const format = q.format as AssessmentFormat;
@@ -55,7 +58,7 @@ export async function createStudyAssessment(connection: AIConnection, sources: S
       if (!Number.isFinite(Number(q.answer)) || !Number.isFinite(Number(q.tolerance)) || Number(q.tolerance) < 0) throw new Error('A numerical question had an invalid answer key. No progress was changed.');
       tolerance = Number(q.tolerance);
     }
-    return { id: `${Date.now()}-${index}`, format, topic: typeof q.topic === 'string' && q.topic.trim() ? q.topic.trim() : topic, difficulty: q.difficulty as AssessmentQuestion['difficulty'], prompt: q.prompt, answer: q.answer, options, correctIndex, tolerance, explanation: q.explanation, citation, evidenceQuote: q.evidenceQuote.trim() };
+    return { id: `${Date.now()}-${index}`, format, topic: typeof q.topic === 'string' && q.topic.trim() ? q.topic.trim() : topic, difficulty: q.difficulty as AssessmentQuestion['difficulty'], prompt: q.prompt, answer: q.answer, options, correctIndex, tolerance, explanation: q.explanation, citation, evidenceQuote };
   });
   if (!questions.some(q => q.format === 'multiple-choice') || !questions.some(q => q.format === 'short-answer')) throw new Error('The assessment lacked required question types. No progress was changed.');
   return questions;

@@ -1,6 +1,7 @@
 import { AIConnection, generateGeminiText, sendAIChat } from './aiConnection';
 import { StudySource, retrieveChunks } from './studySources';
 import { similarStudyQuestion } from './studyQuestionSimilarity';
+import { matchingStudyEvidence } from './studyEvidence';
 
 export interface Citation { number: number; sourceId: string; title: string; label: string; excerpt: string }
 export interface StudyAnswer { text: string; citations: Citation[] }
@@ -41,11 +42,12 @@ export async function createStudyQuestion(connection: AIConnection, sources: Stu
   let value: any;
   try { value = JSON.parse(raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')); }
   catch { throw new Error('The provider did not return a usable question. Try again.'); }
-  const citation = found.citations.find(item => item.number === value.sourceNumber);
+  const citation = found.citations.find(item => item.number === Number(value.sourceNumber));
   if (!citation || typeof value.prompt !== 'string' || !Array.isArray(value.options) || value.options.length !== 4 || !value.options.every((option: unknown) => typeof option === 'string' && option.trim()) || new Set(value.options.map((option: string) => option.toLowerCase().trim())).size !== 4 || !Number.isInteger(value.correctIndex) || value.correctIndex < 0 || value.correctIndex > 3 || typeof value.explanation !== 'string') throw new Error('The provider returned an incomplete question. Try again.');
-  if (typeof value.evidenceQuote !== 'string' || value.evidenceQuote.trim().length < 12 || !citation.excerpt.toLowerCase().includes(value.evidenceQuote.trim().toLowerCase())) throw new Error('The provider could not show source evidence for this question. Try another topic.');
+  const evidenceQuote = typeof value.evidenceQuote === 'string' ? matchingStudyEvidence(citation.excerpt, value.evidenceQuote) : null;
+  if (!evidenceQuote) throw new Error('The provider could not show source evidence for this question. Try another topic.');
   if (recentPrompts.some(prompt => similarStudyQuestion(prompt, value.prompt))) throw new Error('The provider repeated or closely paraphrased a previous question. Try a different topic or request another question.');
-  return { prompt: value.prompt, options: value.options, correctIndex: value.correctIndex, explanation: value.explanation, citation, difficulty, topic, evidenceQuote: value.evidenceQuote.trim() };
+  return { prompt: value.prompt, options: value.options, correctIndex: value.correctIndex, explanation: value.explanation, citation, difficulty, topic, evidenceQuote };
 }
 /** A user-requested second provider pass; this does not claim independent cross-model validation. */
 export async function verifyStudyQuestion(connection: AIConnection, question: StudyQuestion): Promise<StudyQuestionVerification> {
@@ -57,9 +59,9 @@ export async function verifyStudyQuestion(connection: AIConnection, question: St
   if (!value || typeof value !== 'object') throw new Error('The provider did not return a usable verification. Your question is unchanged.');
   const result = value as Record<string, unknown>;
   if (typeof result.supported !== 'boolean' || typeof result.reason !== 'string' || !result.reason.trim()) throw new Error('The provider did not return a usable verification. Your question is unchanged.');
-  const quote = typeof result.evidenceQuote === 'string' ? result.evidenceQuote.trim() : '';
-  if (result.supported && (quote.length < 12 || !question.citation.excerpt.toLowerCase().includes(quote.toLowerCase()))) return { supported: false, reason: 'The second check did not provide a matching source quote.' };
-  return { supported: result.supported, reason: result.reason.trim(), evidenceQuote: result.supported ? quote : undefined };
+  const quote = typeof result.evidenceQuote === 'string' ? matchingStudyEvidence(question.citation.excerpt, result.evidenceQuote) : null;
+  if (result.supported && !quote) return { supported: false, reason: 'The second check did not provide a matching source quote.' };
+  return { supported: result.supported, reason: result.reason.trim(), evidenceQuote: result.supported ? quote || undefined : undefined };
 }
 export function nextDifficulty(correct: boolean, current: StudyQuestion['difficulty']): StudyQuestion['difficulty'] {
   const levels: StudyQuestion['difficulty'][] = ['foundation', 'application', 'challenge'];

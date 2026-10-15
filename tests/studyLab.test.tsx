@@ -94,6 +94,12 @@ describe('Study Lab source grounding and adaptation', () => {
     expect(nextDifficulty(true, question.difficulty)).toBe('application');
     expect(nextDifficulty(false, 'application')).toBe('foundation');
   });
+  it('accepts a numeric-string citation and PDF-formatted evidence without inventing a quote', async () => {
+    const wrapped = { ...source, chunks: [{ ...source.chunks[0], text: 'Photosynthesis converts sunlight, water, and carbon dioxide\ninto glucose and oxygen.' }] };
+    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ prompt: 'What does photosynthesis produce?', options: ['Glucose', 'Iron', 'Salt', 'Sand'], correctIndex: 0, explanation: 'The passage names glucose.', sourceNumber: '1', evidenceQuote: 'carbon dioxide into glucose and oxygen' }) } }] }) } as Response);
+    const question = await createStudyQuestion(connection, [wrapped], 'photosynthesis', 'foundation', 'English');
+    expect(question.evidenceQuote).toBe('carbon dioxide\ninto glucose and oxygen');
+  });
   it('uses the new difficulty on a second sourced question after the first answer', async () => {
     vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ prompt: 'What is produced?', options: ['Glucose', 'Iron', 'Salt', 'Sand'], correctIndex: 0, explanation: 'Glucose is listed in the source.', sourceNumber: 1, evidenceQuote: 'into glucose and oxygen' }) } }] }) } as Response);
     const first = await createStudyQuestion(connection, [source], 'photosynthesis', 'foundation', 'English');
@@ -154,6 +160,18 @@ describe('Study Lab source grounding and adaptation', () => {
     expect(schedule.length).toBeGreaterThan(1);
     expect(schedule[0].topics).toContain('Photosynthesis');
     expect(revisionSchedule([weak], '2026-10-14', new Date('2026-10-15T08:00:00'))).toEqual([]);
+  });
+  it('does not repeat a PDF filename as every revision-card prompt', () => {
+    const filename = 'EduVantage_demo_microgrid_handout.pdf';
+    const materials = [{ id: 'file', title: filename, kind: 'textbook' as const, addedAt: 1, chunks: [
+      { id: 'a', sourceId: 'file', label: 'Page 1', topic: filename, text: `${filename}\nSolar panels convert sunlight into electricity.` },
+      { id: 'b', sourceId: 'file', label: 'Page 2', topic: filename, text: `${filename}\nSolar panels convert sunlight into electricity.` },
+      { id: 'c', sourceId: 'file', label: 'Page 3', topic: filename, text: `${filename}\nBattery storage supports nighttime use.` },
+    ] }];
+    const cards = revisionCards(materials, []);
+    expect(cards).toHaveLength(2);
+    expect(cards.every(card => !card.prompt.includes(filename))).toBe(true);
+    expect(cards.map(card => card.label)).toEqual(['Page 1', 'Page 3']);
   });
   it('saves per-profile practice progress for the dashboard', () => {
     localStorage.clear();
