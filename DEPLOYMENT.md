@@ -21,7 +21,6 @@ Set these environment variables for Preview and Production, then deploy again:
 | `VITE_SUPABASE_URL` | Public Supabase project URL used by browser account requests. |
 | `VITE_SUPABASE_ANON_KEY` | Public anon/publishable key; access is constrained by RLS. |
 | `VITE_SUPPORT_EMAIL` | Optional override for the temporary public contact `Pragyashukla504@gmail.com`. An invalid override keeps the production page closed. |
-| `VITE_INTERVIEWER_URL` | Optional override for the Ultimate AI Interviewer handoff URL; defaults to `https://www.ultimateaiinterviewer.in/`. |
 | `SUPABASE_SERVICE_ROLE_KEY` | **Server-only secret** for self-service account deletion. Never prefix with `VITE_`. |
 
 Each learner brings their own AI provider key. Do not configure a shared Gemini, OpenAI, or Anthropic key. In account mode, provider keys last only for the browser session and are not synced. Text requests to Gemini, OpenAI, and Anthropic use authenticated Vercel functions. Gemini Live receives a short-lived token from the server function. Custom OpenAI-compatible endpoints and optional Gemini media import still connect directly from the browser, so they depend on that provider's browser/CORS support; explain this limitation to users.

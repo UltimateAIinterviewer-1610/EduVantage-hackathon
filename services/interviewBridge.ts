@@ -1,26 +1,6 @@
 import type { SessionRecord } from '../types';
 
-const storageKey = 'edu_interviewer_url';
-
-export function validInterviewerUrl(value: string): string | null {
-  try {
-    const url = new URL(value.trim());
-    if (url.username || url.password || url.search || url.hash || url.pathname !== '/') return null;
-    if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))) return null;
-    return url.origin;
-  } catch { return null; }
-}
-
-export function readInterviewerUrl(): string {
-  try { return localStorage.getItem(storageKey) || import.meta.env.VITE_INTERVIEWER_URL || 'https://www.ultimateaiinterviewer.in/'; }
-  catch { return import.meta.env.VITE_INTERVIEWER_URL || 'https://www.ultimateaiinterviewer.in/'; }
-}
-
-export function saveInterviewerUrl(value: string): boolean {
-  const url = validInterviewerUrl(value);
-  if (!url) return false;
-  try { localStorage.setItem(storageKey, url); return true; } catch { return false; }
-}
+export const OFFICIAL_INTERVIEWER_URL = 'https://www.ultimateaiinterviewer.in';
 
 export function practiceBrief(record: SessionRecord | null, focus: string): string {
   const customFocus = focus.trim().slice(0, 160);

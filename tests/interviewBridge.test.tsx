@@ -3,18 +3,14 @@ import React from 'react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import App from '../App';
-import { practiceBrief, validInterviewerUrl } from '../services/interviewBridge';
+import { OFFICIAL_INTERVIEWER_URL, practiceBrief } from '../services/interviewBridge';
 import { saveProfile, setSignedIn } from '../services/profile';
 
 beforeEach(() => { localStorage.clear(); sessionStorage.clear(); });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
-test('only a safe site origin is accepted for the interview handoff', () => {
-  expect(validInterviewerUrl('https://www.ultimateaiinterviewer.in/')).toBe('https://www.ultimateaiinterviewer.in');
-  expect(validInterviewerUrl('http://localhost:3000/')).toBe('http://localhost:3000');
-  expect(validInterviewerUrl('http://example.com/')).toBeNull();
-  expect(validInterviewerUrl('https://example.com/path')).toBeNull();
-  expect(validInterviewerUrl('https://example.com/?key=secret')).toBeNull();
+test('the interview destination is fixed to the official site', () => {
+  expect(OFFICIAL_INTERVIEWER_URL).toBe('https://www.ultimateaiinterviewer.in');
 });
 
 test('the practice brief contains only selected lesson context', () => {
@@ -30,6 +26,8 @@ test('a learner can open interview and pitch practice from a saved lesson', () =
   saveProfile({id:'learner',name:'Asha',age:'20',className:'University',institution:'College',address:'',city:'',state:'',country:'India',language:'en'});
   setSignedIn(true);
   localStorage.setItem('edu_history', JSON.stringify([{id:'lesson',courseId:'biology',courseTitle:'Biology',teacherName:'Teacher',timestamp:Date.now(),duration:60,videoUrl:'',lessonPlan:{subject:'Biology',chapter:'Plants',topic:'Photosynthesis',requirements:''}}]));
+  localStorage.setItem('edu_interviewer_url', 'https://example.com');
+  vi.stubEnv('VITE_INTERVIEWER_URL', 'https://example.com');
   render(<App/>);
   fireEvent.click(screen.getByRole('button',{name:'Archive'}));
   fireEvent.click(screen.getByRole('button',{name:'Practice this in interviews'}));
@@ -38,7 +36,6 @@ test('a learner can open interview and pitch practice from a saved lesson', () =
   expect(interview.getAttribute('href')).toBe('https://www.ultimateaiinterviewer.in/');
   expect(interview.getAttribute('rel')).toBe('noopener noreferrer');
   expect(screen.getByRole('link',{name:/Open business pitch practice/}).getAttribute('href')).toBe('https://www.ultimateaiinterviewer.in/pitch-practice');
-  fireEvent.change(screen.getByRole('textbox',{name:'Ultimate AI Interviewer website URL'}),{target:{value:'http://example.com/'}});
-  expect(screen.queryByRole('link',{name:'Open Ultimate AI Interviewer'})).toBeNull();
-  expect(screen.getByRole('alert').textContent).toContain('official HTTPS');
+  expect(screen.queryByRole('textbox',{name:'Ultimate AI Interviewer website URL'})).toBeNull();
+  expect(screen.queryByRole('button',{name:'Save website address'})).toBeNull();
 });
