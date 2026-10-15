@@ -4,7 +4,7 @@ type StoredRow = { key: string; value: string };
 const url = (import.meta.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 const sessionKey = 'edu_cloud_session';
-const ownedKey = (key: string) => key === 'edu_student_profile' || key === 'edu_history' || key.startsWith('edu_notes_') || key.startsWith('edu_study_progress_') || key.startsWith('edu_study_sources_') || key.startsWith('edu_study_session_') || key.startsWith('edu_presentation_attempts_');
+const ownedKey = (key: string) => key === 'edu_student_profile' || key === 'edu_history' || key.startsWith('edu_notes_') || key.startsWith('edu_study_progress_') || key.startsWith('edu_study_sources_') || key.startsWith('edu_study_session_') || key.startsWith('edu_study_assessments_') || key.startsWith('edu_study_assessment_session_') || key.startsWith('edu_presentation_attempts_');
 let session: Session | null = null;
 let syncError = '';
 const pending = new Map<string, string>();
@@ -119,6 +119,7 @@ export async function cloudSignOut(): Promise<void> {
   if (active) try { await request('/auth/v1/logout', { method: 'POST' }, active.access_token); } catch {}
   saveSession(null);
   clearLearnerCache();
+  await import('./studyOriginals').then(module => module.clearLocalStudyOriginals()).catch(() => {});
   for (const storage of [sessionStorage, localStorage]) for (let index = storage.length - 1; index >= 0; index--) {
     const key = storage.key(index);
     if (key?.startsWith('edu_ai_connection_') || key?.startsWith('edu_gemini_key_')) storage.removeItem(key);
@@ -146,6 +147,7 @@ export async function cloudDeleteAccount(password: string): Promise<void> {
     throw new Error(result.error || 'Could not delete your account. Try again.');
   }
   pending.clear(); localStorage.removeItem(pendingKey(active.user.id)); saveSession(null); clearLearnerCache();
+  await import('./studyOriginals').then(module => module.clearLocalStudyOriginals()).catch(() => {});
   for (const storage of [sessionStorage, localStorage]) for (let index = storage.length - 1; index >= 0; index--) {
     const key = storage.key(index);
     if (key?.startsWith('edu_ai_connection_') || key?.startsWith('edu_gemini_key_')) storage.removeItem(key);

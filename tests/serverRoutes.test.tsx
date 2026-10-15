@@ -59,6 +59,7 @@ test('account deletion targets only the authenticated learner after password con
   const fetchMock = vi.fn(async (input: string) => {
     if (input.includes('/auth/v1/user')) return new Response('{"id":"user-one","email":"student@example.com"}', { status: 200 });
     if (input.includes('/auth/v1/token')) return new Response('{"user":{"id":"user-one"}}', { status: 200 });
+    if (input.includes('/storage/v1/object/list/')) return new Response('[]', { status: 200 });
     return new Response(null, { status: 204 });
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -69,7 +70,26 @@ test('account deletion targets only the authenticated learner after password con
   const second = response();
   await deleteAccount({ method: 'POST', headers: { authorization: 'Bearer learner-token' }, body: { confirmation: 'DELETE', password: 'password123' } }, second.res);
   expect(second.state.body).toEqual({ deleted: true });
-  expect(fetchMock.mock.calls[3][0]).toContain('/auth/v1/admin/users/user-one');
+  expect(fetchMock.mock.calls[3][0]).toContain('/storage/v1/object/list/edu-study-originals');
+  expect(fetchMock.mock.calls[4][0]).toContain('/auth/v1/admin/users/user-one');
+});
+test('account deletion removes private Study Lab objects first and stops if cleanup fails', async () => {
+  vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'server-only-secret');
+  const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
+    if (input.includes('/auth/v1/user')) return new Response('{"id":"user-one","email":"student@example.com"}', { status: 200 });
+    if (input.includes('/auth/v1/token')) return new Response('{"user":{"id":"user-one"}}', { status: 200 });
+    if (input.includes('/object/list/')) return new Response('[{"id":"object-one","name":"source.pdf"}]', { status: 200 });
+    if (input.includes('/object/edu-study-originals')) {
+      expect(JSON.parse(String(init?.body)).prefixes).toEqual(['user-one/source.pdf']);
+      return new Response(null, { status: 503 });
+    }
+    throw new Error('Account deletion must not start before storage cleanup succeeds.');
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  const { state, res } = response();
+  await deleteAccount({ method: 'POST', headers: { authorization: 'Bearer learner-token' }, body: { confirmation: 'DELETE', password: 'password123' } }, res);
+  expect(state.code).toBe(502);
+  expect(fetchMock.mock.calls.some(call => String(call[0]).includes('/auth/v1/admin/users/'))).toBe(false);
 });
 
 test('deployment CSP permits the exact bundled file redirect script', () => {

@@ -63,7 +63,7 @@ test('Study Lab opens only citations backed by a saved source excerpt',()=>{
 test('Study Lab records two answers and adapts the next sourced question difficulty',async()=>{
  localStorage.setItem('edu_study_sources_recover',JSON.stringify([{id:'s1',title:'Biology notes',kind:'textbook',addedAt:1,chunks:[{id:'c1',sourceId:'s1',text:'Photosynthesis converts sunlight into glucose.',label:'Page 1 · section 1'}]}]));
  let questionNumber=0;
- vi.stubGlobal('fetch',vi.fn().mockImplementation(async()=>new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({prompt:questionNumber++ ? 'Which product is named in the notes?' : 'What does photosynthesis produce?',options:['Glucose','Iron','Salt','Sand'],correctIndex:0,explanation:'The notes identify glucose.',sourceNumber:1})}}]}),{status:200})));
+ vi.stubGlobal('fetch',vi.fn().mockImplementation(async()=>new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({prompt:questionNumber++ ? 'Which product is named in the notes?' : 'What does photosynthesis produce?',options:['Glucose','Iron','Salt','Sand'],correctIndex:0,explanation:'The notes identify glucose.',sourceNumber:1,evidenceQuote:'converts sunlight into glucose'})}}]}),{status:200})));
  renderUi(<StudyLab profileId="recover" connection={connection} language="en" onOpenProvider={()=>{}}/>);
  fireEvent.click(screen.getByRole('button',{name:'Practice'}));
  fireEvent.click(screen.getByRole('button',{name:/Start practice/}));
@@ -97,4 +97,52 @@ test('Presentation Coach keeps a saved plan when refresh hits a billing error',a
  const refresh=screen.getByRole('button',{name:/Refresh/});fireEvent.click(refresh);
  await waitFor(()=>expect(screen.getByText(/credits or billing/)).toBeTruthy());
  expect(screen.getByText('Existing opening')).toBeTruthy();
+});
+
+test('Study Lab completes and saves a mixed assessment without changing normal practice', async () => {
+ const excerpt='Photosynthesis converts sunlight and water into glucose and oxygen.';
+ localStorage.setItem('edu_study_sources_recover',JSON.stringify([{id:'s1',title:'Biology notes',kind:'textbook',addedAt:1,chunks:[{id:'c1',sourceId:'s1',label:'Page 1 · section 1',text:excerpt,topic:'Photosynthesis'}]}]));
+ const questions=[
+  {format:'multiple-choice',topic:'Photosynthesis',difficulty:'foundation',prompt:'Which product is made?',answer:'Glucose',options:['Glucose','Iron','Salt','Sand'],correctIndex:0,explanation:'The passage names glucose.',sourceNumber:1,evidenceQuote:'into glucose and oxygen'},
+  {format:'short-answer',topic:'Photosynthesis',difficulty:'application',prompt:'What inputs are named?',answer:'Sunlight and water',explanation:'Both appear in the passage.',sourceNumber:1,evidenceQuote:'sunlight and water'},
+ ];
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response(JSON.stringify({choices:[{message:{content:JSON.stringify(questions)}}]}),{status:200})));
+ renderUi(<StudyLab profileId="recover" connection={connection} language="en" onOpenProvider={()=>{}}/>);
+ fireEvent.click(screen.getByRole('button',{name:'Mini assessment'}));
+ fireEvent.click(screen.getByRole('button',{name:'Create mini assessment'}));
+ await screen.findByText('Which product is made?');
+ fireEvent.click(screen.getByLabelText('Glucose'));
+ fireEvent.click(screen.getByRole('button',{name:'Check answer'}));
+ fireEvent.click(screen.getByRole('button',{name:'Continue'}));
+ fireEvent.change(screen.getByRole('textbox',{name:'Your short answer'}),{target:{value:'Sunlight and water'}});
+ fireEvent.click(screen.getByRole('button',{name:'Check answer'}));
+ fireEvent.click(screen.getByRole('button',{name:'I got it right'}));
+ fireEvent.click(screen.getByRole('button',{name:'Continue'}));
+ expect(screen.getByText('Assessment report')).toBeTruthy();
+ expect(JSON.parse(localStorage.getItem('edu_study_assessments_recover')!)[0].results).toHaveLength(2);
+});
+
+test('an unfinished mini assessment resumes after leaving Study Lab and reloading', async () => {
+ const excerpt='Photosynthesis converts sunlight and water into glucose and oxygen.';
+ localStorage.setItem('edu_study_sources_recover',JSON.stringify([{id:'s1',title:'Biology notes',kind:'textbook',addedAt:1,chunks:[{id:'c1',sourceId:'s1',label:'Page 1 · section 1',text:excerpt,topic:'Photosynthesis'}]}]));
+ const questions=[
+  {format:'multiple-choice',topic:'Photosynthesis',difficulty:'foundation',prompt:'Which product is made?',answer:'Glucose',options:['Glucose','Iron','Salt','Sand'],correctIndex:0,explanation:'The passage names glucose.',sourceNumber:1,evidenceQuote:'into glucose and oxygen'},
+  {format:'short-answer',topic:'Photosynthesis',difficulty:'application',prompt:'What inputs are named?',answer:'Sunlight and water',explanation:'Both appear in the passage.',sourceNumber:1,evidenceQuote:'sunlight and water'},
+ ];
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response(JSON.stringify({choices:[{message:{content:JSON.stringify(questions)}}]}),{status:200})));
+ const first=renderUi(<StudyLab profileId="recover" connection={connection} language="en" onOpenProvider={()=>{}}/>);
+ fireEvent.click(screen.getByRole('button',{name:'Mini assessment'}));
+ fireEvent.click(screen.getByRole('button',{name:'Create mini assessment'}));
+ await screen.findByText('Which product is made?');
+ fireEvent.click(screen.getByLabelText('Glucose'));
+ fireEvent.click(screen.getByRole('button',{name:'Check answer'}));
+ fireEvent.click(screen.getByRole('button',{name:'Continue'}));
+ fireEvent.change(screen.getByRole('textbox',{name:'Your short answer'}),{target:{value:'Sunlight and water'}});
+ await waitFor(()=>expect(JSON.parse(localStorage.getItem('edu_study_assessment_session_recover')!).response).toBe('Sunlight and water'));
+ first.unmount();
+ renderUi(<StudyLab profileId="recover" connection={connection} language="en" onOpenProvider={()=>{}}/>);
+ fireEvent.click(screen.getByRole('button',{name:'Mini assessment'}));
+ expect(screen.getByText('What inputs are named?')).toBeTruthy();
+ expect((screen.getByRole('textbox',{name:'Your short answer'}) as HTMLInputElement).value).toBe('Sunlight and water');
+ expect(fetch).toHaveBeenCalledTimes(1);
 });

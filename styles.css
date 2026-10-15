@@ -548,3 +548,20 @@ html[data-theme="dark"] .presentation-coach .coach-stepper button { background:#
 html[data-theme="dark"] .presentation-coach .coach-kicker,html[data-theme="dark"] .presentation-coach .coach-eyebrow,html[data-theme="dark"] .presentation-coach .coach-stepper span { color:#bce3bf; }
 html[data-theme="dark"] .session-review :is(.bg-slate-50,.bg-indigo-50,.bg-emerald-50) { background:var(--dialog-raised);color:var(--dialog-text); }
 html[data-theme="dark"] .session-review :is(.text-slate-500,.text-slate-600) { color:var(--dialog-muted); }
+/* Study Lab topic and assessment additions */
+.study-panel .study-choices label { display:flex;align-items:center;gap:.8rem;text-align:start;padding:.8rem;border:1px solid var(--study-line);border-radius:11px;background:#fff;cursor:pointer; }
+.study-panel .study-choices label:has(input:checked) { border-color:#41835b;background:#e6f2e7; }
+.study-panel .study-choices input { flex:none;accent-color:#367650; }
+.study-panel .profile-field input[list],.study-panel .profile-field input[type="text"],.study-panel .profile-field input[type="number"] { width:100%;border:1px solid var(--study-line);border-radius:10px;padding:.7rem .8rem;background:#fff;color:var(--study-ink); }
+.study-topic-list li>div { min-width:0;overflow-wrap:anywhere; }
+.study-topic-list li button { align-self:center;flex:none;color:#1c6844;font-weight:800;text-decoration:underline; }
+@media(max-width:600px) { .study-topic-list li { flex-wrap:wrap; }.study-topic-list li button { margin-left:auto; } }
+html[data-theme="dark"] .study-panel .study-choices label,html[data-theme="dark"] .study-panel .profile-field input[list],html[data-theme="dark"] .study-panel .profile-field input[type="text"],html[data-theme="dark"] .study-panel .profile-field input[type="number"] { background:#152e36;color:#edf5ec; }
+html[data-theme="dark"] .study-panel .study-choices label:has(input:checked) { background:#275644;border-color:#8fca9e; }
+html[data-theme="dark"] .study-topic-list li button { color:#b8e5c0; }
+.study-recent details { margin:.45rem 0;padding:.6rem .8rem;border:1px solid var(--study-line);border-radius:9px; }
+.study-recent details summary { cursor:pointer;font-weight:800; }
+.study-recent details p { white-space:pre-wrap; }
+.study-recent ol { padding-left:1.3rem;line-height:1.8; }
+.study-panel .profile-field input[type="date"] { border:1px solid var(--study-line);border-radius:10px;padding:.7rem .8rem;background:#fff;color:var(--study-ink); }
+html[data-theme="dark"] .study-panel .profile-field input[type="date"] { background:#152e36;color:#edf5ec;color-scheme:dark; }

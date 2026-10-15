@@ -7,8 +7,8 @@ import { persistLearnerData } from './cloud';
 import { assertProviderReady, providerLimit } from './providerLimits';
 
 export type StudyKind = 'textbook' | 'slides' | 'lecture';
-export interface StudyChunk { id: string; sourceId: string; label: string; text: string }
-export interface StudySource { id: string; title: string; kind: StudyKind; chunks: StudyChunk[]; addedAt: number }
+export interface StudyChunk { id: string; sourceId: string; label: string; text: string; topic?: string }
+export interface StudySource { id: string; title: string; kind: StudyKind; chunks: StudyChunk[]; addedAt: number; originalPath?: string }
 const key = (profileId: string) => `edu_study_sources_${profileId}`;
 const MAX_FILE_BYTES = 12 * 1024 * 1024;
 const MAX_CHARS = 150000;
@@ -39,17 +39,25 @@ export function readStudySources(profileId: string): StudySource[] {
 export function writeStudySources(profileId: string, sources: StudySource[]): void {
   persistLearnerData(key(profileId), JSON.stringify(sources));
 }
-export function chunkText(sourceId: string, text: string, prefix = 'Section'): StudyChunk[] {
+export function inferStudyTopic(text: string): string {
+  const first = text.replace(/^\s*#{1,6}\s*/m, '').split(/[\n.!?]/).map(part => part.trim()).find(Boolean) || '';
+  const words = first.match(/[\p{L}\p{N}][\p{L}\p{N}'-]*/gu) || [];
+  return words.slice(0, 7).join(' ').slice(0, 70) || 'General concepts';
+}
+export function studyTopics(sources: StudySource[]): string[] {
+  return [...new Set(sources.flatMap(source => source.chunks.map(chunk => chunk.topic || inferStudyTopic(chunk.text))))].filter(Boolean);
+}
+export function chunkText(sourceId: string, text: string, prefix = 'Section', topic?: string): StudyChunk[] {
   const cleaned = text.replace(/\r/g, '').replace(/[ \t]+/g, ' ').trim();
   const chunks: StudyChunk[] = [];
   const size = 1050;
   for (let start = 0; start < cleaned.length; start += size) {
     const part = cleaned.slice(start, start + size).trim();
-    if (part) chunks.push({ id: `${sourceId}-${chunks.length}`, sourceId, label: `${prefix} ${chunks.length + 1}`, text: part });
+    if (part) chunks.push({ id: `${sourceId}-${prefix.replace(/[^\p{L}\p{N}]+/gu, '-')}-${chunks.length}`, sourceId, label: `${prefix} ${chunks.length + 1}`, text: part, topic: topic || inferStudyTopic(part) });
   }
   return chunks;
 }
-export function captionChunks(sourceId: string, text: string): StudyChunk[] {
+export function captionChunks(sourceId: string, text: string, timeLabel = 'Timestamp'): StudyChunk[] {
   const blocks = text.replace(/\r/g, '').split(/\n\s*\n/);
   const chunks: StudyChunk[] = [];
   for (const block of blocks) {
@@ -58,7 +66,7 @@ export function captionChunks(sourceId: string, text: string): StudyChunk[] {
     if (timing < 0) continue;
     const start = lines[timing].split('-->')[0].trim().replace(',', '.');
     const spoken = lines.slice(timing + 1).filter(line => !/^NOTE\b/.test(line)).join(' ').replace(/<[^>]+>/g, '').trim();
-    for (const part of chunkText(sourceId, spoken, `Timestamp ${start} · section`)) {
+    for (const part of chunkText(sourceId, spoken, `${timeLabel} ${start} · section`)) {
       chunks.push({ ...part, id: `${sourceId}-${chunks.length}` });
     }
   }
@@ -92,38 +100,74 @@ export async function importStudyFile(file: File, kind: StudyKind, options: Impo
           if (y !== undefined) lastY = y;
           return `${newLine ? '\n' : ''}${item.str}${item.hasEOL ? '\n' : ' '}`;
         }).join('').trim();
-        if (!text && options.useGeminiMedia) {
-          if (document.numPages > MAX_OCR_PAGES) throw new Error('Gemini OCR supports up to 12 scanned pages per upload. Split this PDF or use a text-selectable version.');
+        let figureDescription = '';
+        if (options.useGeminiMedia && pageNumber <= MAX_OCR_PAGES) {
           const viewport = page.getViewport({ scale: 1.25 });
           const canvas = window.document.createElement('canvas');
           canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
           const canvasContext = canvas.getContext('2d');
-          if (!canvasContext) throw new Error('This browser cannot render scanned PDF pages.');
+          if (!canvasContext) throw new Error('This browser cannot render PDF pages for Gemini.');
           await page.render({ canvas, canvasContext, viewport }).promise;
-          text = await extractWithGemini(canvas.toDataURL('image/png').split(',')[1], 'image/png', 'Transcribe all readable text from this page. Preserve headings and order. Return only the transcribed text.', options.connection);
+          const image = canvas.toDataURL('image/png').split(',')[1];
+          if (!text) text = await extractWithGemini(image, 'image/png', 'Transcribe all readable text from this page. Describe educational diagrams and figures, including visible labels. Return only observed content.', options.connection);
+          else figureDescription = await extractWithGemini(image, 'image/png', 'Describe only educational figures, charts, and diagrams visible on this page, including labels and relationships. Do not repeat running prose. If none are present, return exactly NONE.', options.connection);
         }
-        total += text.length;
+        if (!text && document.numPages > MAX_OCR_PAGES) throw new Error('Scanned PDFs over 12 pages need a text-selectable version or smaller parts for Gemini processing.');
+        total += text.length + (figureDescription === 'NONE' ? 0 : figureDescription.length);
         if (total > MAX_CHARS) throw new Error('This PDF has too much text for a browser-local study library. Use a shorter extract.');
-        chunks.push(...chunkText(id, text, `Page ${pageNumber} · section`));
+        chunks.push(...chunkText(id, text, `Page ${pageNumber} · section`, inferStudyTopic(text)));
+        if (figureDescription && figureDescription.toUpperCase() !== 'NONE') chunks.push(...chunkText(id, figureDescription, `Page ${pageNumber} · figure`, inferStudyTopic(text || figureDescription)));
       }
     } finally { await loadingTask.destroy(); }
   } else if (isPptx) {
-    const archive = unzipSync(new Uint8Array(await file.arrayBuffer()), { filter: entry => /^ppt\/slides\/slide\d+\.xml$/.test(entry.name) && entry.originalSize <= 2 * 1024 * 1024 });
+    let expandedBytes = 0;
+    let acceptedEntries = 0;
+    const archive = unzipSync(new Uint8Array(await file.arrayBuffer()), { filter: entry => {
+      const wanted = /^ppt\/slides\/slide\d+\.xml$/.test(entry.name) || Boolean(options.useGeminiMedia && (/^ppt\/slides\/_rels\/slide\d+\.xml\.rels$/.test(entry.name) || /^ppt\/media\/[\w.-]+$/.test(entry.name)));
+      if (!wanted) return false;
+      if (entry.originalSize > 5 * 1024 * 1024 || ++acceptedEntries > 250 || (expandedBytes += entry.originalSize) > 64 * 1024 * 1024) throw new Error('This slide deck expands beyond the safe import limit. Use a smaller deck.');
+      return true;
+    } });
     const slides = Object.entries(archive).filter(([path]) => /^ppt\/slides\/slide\d+\.xml$/.test(path)).sort(([a], [b]) => Number(a.match(/slide(\d+)/)?.[1] || 0) - Number(b.match(/slide(\d+)/)?.[1] || 0));
     let total = 0;
+    let inspectedImages = 0;
     for (const [path, bytes] of slides) {
       const xml = new DOMParser().parseFromString(new TextDecoder().decode(bytes), 'application/xml');
       const text = [...xml.getElementsByTagNameNS('*', 't')].map(node => node.textContent || '').join('\n').trim();
       total += text.length;
       if (total > MAX_CHARS) throw new Error('These slides have too much text for a browser-local library. Use a shorter deck.');
-      chunks.push(...chunkText(id, text, `Slide ${path.match(/slide(\d+)/)?.[1]} · section`));
+      const slideNumber = path.match(/slide(\d+)/)?.[1];
+      chunks.push(...chunkText(id, text, `Slide ${slideNumber} · section`, inferStudyTopic(text)));
+      if (options.useGeminiMedia && slideNumber && inspectedImages < MAX_OCR_PAGES) {
+        const relationships = archive[`ppt/slides/_rels/slide${slideNumber}.xml.rels`];
+        if (relationships) {
+          const rels = new DOMParser().parseFromString(new TextDecoder().decode(relationships), 'application/xml');
+          for (const rel of [...rels.getElementsByTagNameNS('*', 'Relationship')]) {
+            if (inspectedImages >= MAX_OCR_PAGES) break;
+            if (!rel.getAttribute('Type')?.endsWith('/image')) continue;
+            const name = rel.getAttribute('Target')?.match(/(?:^|\/)media\/([\w.-]+)$/)?.[1];
+            if (!name) continue;
+            const image = archive[`ppt/media/${name}`];
+            const extension = name.split('.').pop()?.toLowerCase();
+            const mimeType = extension === 'png' ? 'image/png' : extension === 'jpg' || extension === 'jpeg' ? 'image/jpeg' : extension === 'webp' ? 'image/webp' : null;
+            if (!image || !mimeType) continue;
+            inspectedImages++;
+            const description = await extractWithGemini(toBase64(image), mimeType, 'Describe only educational information visible in this slide image, such as diagrams, charts, figure labels, and relationships. Do not speculate. If it has no educational content, return exactly NONE.', options.connection);
+            if (!description || description.toUpperCase() === 'NONE') continue;
+            total += description.length;
+            if (total > MAX_CHARS) throw new Error('These slides have too much content for a browser-local library. Use a shorter deck.');
+            chunks.push(...chunkText(id, description, `Slide ${slideNumber} · figure`, inferStudyTopic(text || description)));
+          }
+        }
+      }
     }
   } else if (isVideo) {
     if (!options.useGeminiMedia) throw new Error('For MP4 or WebM, enable Gemini video transcription, or upload captions as VTT/SRT.');
     const mimeType = file.name.toLowerCase().endsWith('.mp4') ? 'video/mp4' : 'video/webm';
-    const transcript = await extractWithGemini(toBase64(new Uint8Array(await file.arrayBuffer())), mimeType, 'Transcribe the spoken teaching content of this short lecture. Preserve key terms and order. Return only the transcript.', options.connection);
+    const transcript = await extractWithGemini(toBase64(new Uint8Array(await file.arrayBuffer())), mimeType, 'Transcribe the spoken teaching content of this short lecture as WEBVTT timed captions with start and end times in HH:MM:SS.mmm format. Preserve key terms and order. Return only WEBVTT. If you cannot identify timing, return plain transcript text instead.', options.connection);
     if (transcript.length > MAX_CHARS) throw new Error('This video transcript is too long. Use a shorter clip.');
-    chunks = chunkText(id, transcript, 'Video section');
+    chunks = captionChunks(id, transcript, 'AI-estimated timestamp');
+    if (!chunks.length) chunks = chunkText(id, transcript, 'Video section');
   } else {
     const text = await file.text();
     if (/\u0000/.test(text) || (text.match(/\uFFFD/g)?.length || 0) > Math.max(2, text.length * 0.02)) throw new Error('This text file is not readable. Save it as UTF-8 text and try again.');
@@ -134,13 +178,16 @@ export async function importStudyFile(file: File, kind: StudyKind, options: Impo
   if (!chunks.length) throw new Error('No readable text was found. For scanned PDFs enable Gemini OCR, or upload a text-selectable version.');
   return { id, title: file.name, kind, chunks, addedAt: Date.now() };
 }
-const STOP_WORDS = new Set(['what','where','when','with','from','this','that','about','please','explain','which','does','have','were','there','these','those','into','your','their','could','would','should','are','the','and','for','how','why','can']);
+const STOP_WORDS = new Set(['what','where','when','with','from','this','that','about','please','explain','which','does','have','were','there','these','those','into','your','their','could','would','should','are','the','and','for','how','why','can','use','using','used','happens','related','written']);
 const terms = (text: string) => new Set((text.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) || []).filter(word => !STOP_WORDS.has(word)));
 const broadQuery = (query: string) => /\b(summary|summarize|overview|key ideas|key concepts|main points)\b/i.test(query);
 export function retrieveChunks(sources: StudySource[], query: string, count = 4): { source: StudySource; chunk: StudyChunk }[] {
   const words = terms(query);
-  const matches = sources.flatMap(source => source.chunks.map(chunk => ({ source, chunk, score: [...words].reduce((score, word) => score + (chunk.text.toLowerCase().includes(word) ? 1 : 0), 0) })));
-  const relevant = matches.some(item => item.score > 0) ? matches.filter(item => item.score > 0) : broadQuery(query) ? sources.flatMap(source => source.chunks.slice(0, 2).map(chunk => ({ source, chunk, score: 0 }))) : [];
+  const chunks = sources.flatMap(source => source.chunks.map(chunk => ({ source, chunk, tokens: terms(`${chunk.topic || ''} ${chunk.text}`) })));
+  const documentFrequency = new Map([...words].map(word => [word, chunks.filter(item => item.tokens.has(word)).length]));
+  const matches = chunks.map(({ source, chunk, tokens }) => ({ source, chunk, score: [...words].reduce((score, word) => score + (tokens.has(word) ? Math.log(1 + chunks.length / (1 + (documentFrequency.get(word) || 0))) : 0), 0) }));
+  const maxScore = Math.max(0, ...matches.map(item => item.score));
+  const relevant = maxScore > 0 ? matches.filter(item => item.score > 0 && item.score >= maxScore * 0.62) : broadQuery(query) ? sources.flatMap(source => source.chunks.slice(0, 2).map(chunk => ({ source, chunk, score: 0 }))) : [];
   return relevant
     .sort((a, b) => b.score - a.score)
     .slice(0, count)
