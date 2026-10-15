@@ -28,6 +28,7 @@ export const cloudRequired = import.meta.env.PROD && !cloudConfigured && (typeof
 export const cloudSyncError = () => syncError;
 export const onCloudStatus = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
 export const cloudUserId = () => session?.user.id || null;
+export const cloudUserEmail = () => session?.user.email || null;
 export const hasDeviceProgress = () => {
   try { return Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)).some(key => key && ownedKey(key) && key !== 'edu_student_profile'); }
   catch { return false; }
